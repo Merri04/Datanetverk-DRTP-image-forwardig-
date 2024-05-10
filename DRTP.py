@@ -12,11 +12,13 @@ import subprocess
 import platform
 import argparse
 from argparse import Namespace
-
+from threading import Thread, Lock
 
 #global variables
 separator_line = "---------------------------------------------------------"
 DRTP_struct = struct.Struct("!HHH")
+Header_size = DRTP_struct.size
+SEQ_START = 1
 #flags
 SYN_FLAG = 1 << 3
 ACK_FLAG = 1 << 2
@@ -62,8 +64,8 @@ def strip_packet(data):
     data = data[DRTP_struct.size:]
     return header, data
 
-def create_packet(Seq_num, Ack_num, flags, data):
-    header = header(Seq_num, Ack_num, flags)
+def create_packet(Seq_num, Ack_num, flags, data=b""):
+    header = DRTP_struct.pack(Seq_num, Ack_num, flags)
     return header + data
 
 separator_line = "---------------------------------------------------------"
@@ -133,9 +135,7 @@ def gbn_receiver(bind_ip, bind_port):
         server_socket.close()
         
 def run_server(server_ip, server_port):
-    timeout = 5
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    server_socket.settimeout(timeout)
     server_socket.bind((server_ip, server_port))
 
     print(separator_line)
@@ -146,33 +146,48 @@ def run_server(server_ip, server_port):
     
     
     while True:
-        try:
-            syn_packet, client_address = server_socket.recvfrom(DRTP_struct.size)
-            _, _, flags = unpack_header(syn_packet)
+        packet, addr = server_socket.recvfrom(PACKET_SIZE)
+        seq_num, ack_num, flags = unpack_header(packet)
+        
+        if flags & SYN_FLAG:
             print("SYN packet is received")
-            if flags & SYN_FLAG:
-                # Generate a random initial sequence number for SYN-ACK
-                server_isn = generate_random_isn()
-                syn_ack_packet = header(server_isn, 0, set_flags(1, 1, 0, 0))
-                server_socket.sendto(syn_ack_packet, client_address)
-                print("SYN-ACK packet is sent") 
-                
-                ack_packet, _ = server_socket.recvfrom(DRTP_struct.size)
-                _, _, flags = unpack_header(ack_packet)
-            if flags & ACK_FLAG:
-                    print("ACK packet is received")
-        
-            
-        except:
-            print("Connection established")
-            print()
-            print()
-        
-            print(f"An unexpected error occurred: {e}")
+            syn_ack_header = create_packet(seq_num + 1, 0, SYN_FLAG | ACK_FLAG)
+            server_socket.sendto(syn_ack_header, addr)
+            print("SYN-ACK packet is sent")
 
-def run_client(server_ip, server_port):
+        elif flags & ACK_FLAG:
+            print("ACK packet is received")
+            print("Connection established\n")
+            break
+
+    # Data reception and ACK sending
+    expected_seq_num = seq_num + 2
+    try:
+        while True:
+            packet, addr = server_socket.recvfrom(PACKET_SIZE)
+            seq_num, ack_num, flags = unpack_header(packet[:Header_size])
+            if flags & FIN_FLAG:
+                print("FIN packet is received")
+                fin_ack_header = create_packet(seq_num + 1, 0, FIN_FLAG)
+                server_socket.sendto(fin_ack_header, addr)
+                print("FIN ACK packet is sent")
+                break
+            if seq_num == expected_seq_num:
+                print(f"{time.strftime('%H:%M:%S.%f')} -- packet {seq_num} is received")
+                print(f"{time.strftime('%H:%M:%S.%f')} -- sending ack for the received {seq_num}")
+                ack_header = create_packet(0, seq_num, ACK_FLAG)
+                server_socket.sendto(ack_header, addr)
+                expected_seq_num += 1
+
+    finally:
+        print("Connection closes")
+        server_socket.close()
+           
+
+def run_client(server_ip, server_port, file_path):
     client_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     client_socket.connect((server_ip, server_port))
+    client_socket.settimeout(0.5)
 
     print(separator_line)
     print()
@@ -180,34 +195,80 @@ def run_client(server_ip, server_port):
     print()
     print(separator_line)
 
-    client_isn = generate_random_isn()
-    syn_packet = header(client_isn, 0, set_flags(1, 0, 0, 0))
-    client_socket.send(syn_packet)
-    print(f"SYN packet is sent {client_isn}")
-    
-    #receive syn-ack and validate
-    SYN_FLAG = 1 << 3
-    ACK_FLAG = 1 << 2
-    syn_packet = header(0, 0, set_flags(1, 0, 0, 0))
-    client_socket.send(syn_packet)
-    print("SYN packet is sent")
+    try:
+        # Connection Establishment
+        print("Connection Establishment Phase:")
+        syn_header = create_packet(SEQ_START, 0, SYN_FLAG)
+        client_socket.sendto(syn_header, (server_ip, server_port))
+        print("SYN packet is sent")
 
-    # Receive SYN-ACK packet
-    syn_ack_packet = client_socket.recv(DRTP_struct.size)
-    _, _, flags = unpack_header(syn_ack_packet)
-    if flags & (SYN_FLAG | ACK_FLAG):
-        print("SYN-ACK packet is received")
-        # Send ACK packet
-        ack_packet = header(0, 1, set_flags(0, 1, 0, 0))
-        client_socket.send(ack_packet)
-        print("ACK packet is sent")
-        print("Connection established")
-    else:
-        print("SYN-ACK packet not correctly received")
-    print()
-    print("Data transfer: ")
-    print()
+        response, _ = client_socket.recvfrom(PACKET_SIZE)
+        _, _, flags = unpack_header(response)
+        if flags & (SYN_FLAG | ACK_FLAG):
+            print("SYN-ACK packet is received")
+            ack_header = create_packet(SEQ_START + 1, 0, ACK_FLAG)
+            client_socket.sendto(ack_header, (server_ip, server_port))
+            print("ACK packet is sent")
+            print("Connection established\n")
 
+        # Data Transfer
+        print("Data Transfer:")
+        with open(file_path, "rb") as file:
+            sequence_num = SEQ_START + 1  # Start after connection sequence
+            window_size = 5
+            base_seq_num = sequence_num
+            packets = {}
+            acks_received = Thread(target=receive_acks, args=(client_socket, base_seq_num, packets, window_size))
+            acks_received.start()
+
+            while True:
+                data = file.read(994)  # Read data in chunks
+                if not data:
+                    break
+                while sequence_num >= base_seq_num + window_size:
+                    time.sleep(0.05)  # Wait for window to slide
+
+                packet = create_packet(sequence_num, 0, 0) + data
+                packets[sequence_num] = packet
+                client_socket.sendto(packet, (server_ip, server_port))
+                print(f"{time.strftime('%H:%M:%S.%f')} -- packet with seq = {sequence_num} is sent, sliding window = {{{base_seq_num} to {base_seq_num + window_size - 1}}}")
+                sequence_num += 1
+
+            acks_received.join()
+
+        # Connection Teardown
+        print("\nConnection Teardown:")
+        fin_header = create_packet(sequence_num, 0, FIN_FLAG)
+        client_socket.sendto(fin_header, (server_ip, server_port))
+        print("FIN packet is sent")
+
+        response, _ = client_socket.recvfrom(PACKET_SIZE)
+        _, _, flags = unpack_header(response)
+        if flags & FIN_FLAG:
+            print("FIN ACK packet is received")
+
+    finally:
+        print("Connection closes")
+        client_socket.close()
+
+    def receive_acks(sock, base_seq, packets, window_size):
+        while True:
+            try:
+                response, _ = sock.recvfrom(PACKET_SIZE)
+                _, ack_num, flags = unpack_header(response)
+                if flags & ACK_FLAG:
+                    print(f"{time.strftime('%H:%M:%S.%f')} -- ACK for packet = {ack_num} is received")
+                    with Lock():
+                        if ack_num >= base_seq:
+                            base_seq = ack_num + 1
+            except socket.timeout:
+                with Lock():
+                    for seq in range(base_seq, base_seq + window_size):
+                        if seq in packets:
+                            sock.sendto(packets[seq], (server_ip, server_port))
+                            print(f"{time.strftime('%H:%M:%S.%f')} -- Retransmitting packet with seq = {seq}")
+            except:
+                break  # Exit when file transfer is complete
 #make a function that tels the port is listening
 def server_listening_on_port(listening_port):
     print(separator_line)
@@ -288,6 +349,3 @@ def check_port(port):
         exit(1) 
 
     return port 
-
-
-

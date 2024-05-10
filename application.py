@@ -1,5 +1,6 @@
 import argparse
 import os
+import sys
 from config import *
 import argparse
 import socket
@@ -106,32 +107,33 @@ def main():
 
     parser = argparse.ArgumentParser(description="Simple Reliable Data Transfer Protocol")
 
-    #client only arguments
-    client_group = parser.add_argument_group("Client")  #this creates a group for the client arguments.
-    client_group.add_argument("-c", "--client", action="store_true", help="runns in client mode") #this adds the file argument to the client group.
-    client_group.add_argument("-f", "--file", type=check_file, help="What is the file you want to sent") #this adds the file argument to the client group.
+    # Mode selection
+    parser.add_argument("-c", "--client", action="store_true", help="Run in client mode")
+    parser.add_argument("-s", "--server", action="store_true", help="Run in server mode")
 
+    # Mode-specific arguments
+    mode_group = parser.add_argument_group("Mode Specific")
+    mode_group.add_argument("-f", "--file", type=check_file, help="File to send (client mode)")
+    mode_group.add_argument("-o", "--output", type=check_saved_file, default=default_server_save_path, help="Where to save the file (server mode), default %(default)s")
 
-    #server only arguments
-    server_group = parser.add_argument_group("Server")  #this creates a group for the server arguments.
-    server_group.add_argument("-s", "--server", action="store_true", help="runns in server mode") #this adds the file argument to the server group.
-    server_group.add_argument("-o", "--output", type=check_saved_file, default=default_server_save_path, help="Where to save the file, default %(default)s") #this adds the output argument to the server group.
+    # Common arguments
+    parser.add_argument("-p", "--port", type=check_port, default=default_port, help="Port number, default %(default)s")
+    parser.add_argument("-i", "--ip", type=check_ip, default=default_ip, help="IP address of the server's interface, default %(default)s")
+    parser.add_argument("-w", "--window", type=check_window, default=3, help="Sliding window size, default %(default)s")
+    parser.add_argument("-d", "--discard", type=check_discard, default=default_discard, help="Discard a packet with blbalabala")
 
-
-    #common arguments
-    parser.add_argument("-p", "--port", type=check_port, default=default_port, help="Port number, default %(default)s") #this adds the port argument to the parser.
-    parser.add_argument("-i", "--ip", type=check_ip, default=default_ip,help="IP address of the server's interface %(default)s") #this adds the IP argument to the parser.
-    parser.add_argument("-w", "--window", type=check_window, default=3, help="Sliding window size %(default)s") #this adds the window argument to the parser.
-    parser.add_argument("-d", "--discard", type=check_discard, default=default_discard, help="Discard a packet with blbalabala") #this adds the discard argument to the parser.
-#choices[3,5,10] instead of 3 
-    args = parser.parse_args() #this parses the arguments and stores them in the args variable.rin
+    args = parser.parse_args()
 
     if args.server:
         DRTP.run_server(args.ip, args.port)
     elif args.client:
-        DRTP.run_client(args.ip, args.port)
+        if args.file:
+            DRTP.run_client(args.ip, args.port, args.file)
+        else:
+            print("Error: No file specified for the client to send.")
+            parser.print_help()
+            sys.exit(1)
 
 
 if __name__ == "__main__":
     main() #this starts the main function when you run the program.
-    

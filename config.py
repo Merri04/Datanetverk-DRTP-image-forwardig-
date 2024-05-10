@@ -1,10 +1,8 @@
-
-
-SERVER = '10.0.0.1'
-PORT = 8088
-PROTOCOL = 'saw'  # default: stop and wait
+SERVER = '127.0.0.1'
+PORT = 8080
+PROTOCOL = 'gbn'  # default: gbn, other option: sr
 PAYLOAD_SIZE = 1460
-WINDOW = 5
+WINDOW = 3
 TIMEOUT = 0.5
 MAX_LOSS_PACKETS = 5
 MAX_SKIP_ACKS = 5
