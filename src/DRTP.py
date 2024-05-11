@@ -1,0 +1,266 @@
+import socket
+import struct
+import os
+import sys
+import time
+
+class DRTPBase:
+    HEADER_FORMAT = '!HHH'
+    HEADER_SIZE = 6
+    DATA_SIZE = 994
+    PACKET_SIZE = HEADER_SIZE + DATA_SIZE
+    SYN = 1
+    ACK = 2
+    FIN = 4
+    TIMEOUT_INTERVAL = 0.5  # 500ms timeout
+
+    def __init__(self, ip, port, window_size=3):
+        self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.socket.settimeout(self.TIMEOUT_INTERVAL)
+        self.ip = ip
+        self.port = port
+        self.window_size = window_size
+        self.expected_seq = 1
+        self.next_seq_num = 1
+        self.window = []
+        self.send_buffer = {}
+
+    def encode_header(self, seq_num, ack_num, flags):
+        return struct.pack(self.HEADER_FORMAT, seq_num, ack_num, flags)
+
+    def decode_header(self, packet):
+        return struct.unpack(self.HEADER_FORMAT, packet[:self.HEADER_SIZE])
+
+    def send_packet(self, seq_num, ack_num, flags, data=b'', addr=None):
+        packet = self.encode_header(seq_num, ack_num, flags) + data
+        if addr is None:
+            addr = (self.ip, self.port)
+        self.socket.sendto(packet, addr)
+        #print(f"Packet sent: Seq={seq_num}, Ack={ack_num}, Flags={flags}, Data={data[:20]}... to {addr}")
+
+    def receive_packet(self):
+        packet, addr = self.socket.recvfrom(self.PACKET_SIZE)
+        seq_num, ack_num, flags = self.decode_header(packet)
+        data = packet[self.HEADER_SIZE:]
+        #print(f"Packet received: Seq={seq_num}, Ack={ack_num}, Flags={flags}, Data={data[:20]}... from {addr}")
+        return (seq_num, ack_num, flags), data, addr
+      
+
+class DRTPServer(DRTPBase):
+    def __init__(self, ip, port, window_size=3, discard=None):
+        super().__init__(ip, port, window_size)
+        self.discard_seq = discard
+        self.connection_state = "LISTEN"
+        self.socket.bind((self.ip, self.port))
+        self.socket.settimeout(None)
+        self.last_acked_seq = 0
+        self.buffered_packets = {}
+        self.total_data_received = 0  
+        self.start_time = None
+        self.end_time = None
+
+    def run(self):
+        print(f"Server started at {self.ip}:{self.port}")
+        packet_discarded = False
+        try:
+            while self.connection_state != "CLOSED":
+                header, data, addr = self.receive_packet()
+                if header:
+                    seq_num, ack_num, flags = header
+                    if self.discard_seq and int(self.discard_seq) == seq_num and not packet_discarded:
+                        print(f"{time.strftime('%H:%M:%S.%f')[:-3]} -- packet {seq_num} is intentionally discarded")
+                        packet_discarded = True
+                        continue
+                    if flags & self.SYN and self.connection_state == "LISTEN":
+                        self.handle_syn(seq_num, addr)
+                    elif flags & self.ACK and self.connection_state == "SYN_RCVD":
+                        self.start_time = time.perf_counter() 
+                        self.handle_established()
+                    elif flags & self.FIN and self.connection_state == "ESTABLISHED":
+                        self.end_time = time.perf_counter()  
+                        self.handle_fin(seq_num, addr)
+                    elif self.connection_state == "ESTABLISHED":
+                        self.handle_data_packet(seq_num, data, addr)
+        finally:
+            self.calculate_throughput()
+            self.close()
+
+    def handle_syn(self, seq_num, addr):
+        print("SYN packet is received")
+        self.send_packet(0, seq_num + 1, self.SYN | self.ACK, addr=addr)
+        print("SYN-ACK packet is sent")
+        self.connection_state = "SYN_RCVD"
+
+    def handle_established(self):
+        print("ACK packet is received")
+        print("Connection established")
+        self.connection_state = "ESTABLISHED"
+
+    def handle_fin(self, seq_num, addr):
+        print("FIN packet is received")
+        self.send_packet(seq_num + 1, 0, self.ACK, addr=addr)
+        print("FIN-ACK packet is sent")
+        self.connection_state = "CLOSED"
+        #calculate throughput
+        print("Connection closed")
+
+    def close(self):
+        self.socket.close()
+
+            
+
+    def handle_data_packet(self, seq_num, data, addr):
+        if not hasattr(self, 'filepath'):
+        # Assume the first packet contains the filename
+            if data.startswith(b'FILENAME:'):
+                filename = data.decode().split(':')[1]  # Extract filename from packet
+                directory = "received_files"
+                if not os.path.exists(directory):
+                    os.makedirs(directory)
+                self.filepath = os.path.join(directory, filename)
+                #print(f"Filename set to {self.filepath}")
+                return  # Do not write this packet's data to file
+
+        # Write data to the file specified by the first packet
+        with open(self.filepath, "ab") as file:
+            file.write(data)
+        #print(f"Data written to {self.filepath}")
+
+        if seq_num == self.last_acked_seq + 1:
+            self.total_data_received += len(data)
+            print(f"{time.strftime('%H:%M:%S.%f')[:-3]} -- packet {seq_num} is received")
+            self.send_packet(0, seq_num, self.ACK, addr=addr)
+            self.last_acked_seq += 1
+            print(f"{time.strftime('%H:%M:%S.%f')[:-3]} -- sending ack for the received {seq_num}")
+            self.process_buffered_packets(addr)
+        elif seq_num > self.last_acked_seq + 1:
+            self.buffered_packets[seq_num] = data
+            print(f"{time.strftime('%H:%M:%S.%f')[:-3]} -- out-of-order packet {seq_num} is received")
+            #make a logic that handles discarding of packets
+            if seq_num == self.discard_seq:
+                print(f"{time.strftime('%H:%M:%S.%f')[:-3]} -- packet {seq_num} is discarded")
+        else:
+            print(f"{time.strftime('%H:%M:%S.%f')[:-3]} -- duplicate packet {seq_num} is received")
+            self.send_packet(0, seq_num, self.ACK, addr=addr)
+            print(f"{time.strftime('%H:%M:%S.%f')[:-3]} -- sending ack for the duplicate received {seq_num}")
+
+    def process_buffered_packets(self, addr):
+        # Attempt to process any buffered packets that can now be accepted
+        while self.last_acked_seq + 1 in self.buffered_packets:
+            seq_num = self.last_acked_seq + 1
+            data = self.buffered_packets.pop(seq_num)
+            print(f"{time.strftime('%H:%M:%S.%f')[:-3]} -- packet {seq_num} from buffer is now received")
+            self.send_packet(0, seq_num, self.ACK, addr=addr)
+            print(f"{time.strftime('%H:%M:%S.%f')[:-3]} -- sending ack for the buffered received {seq_num}")
+            self.last_acked_seq = seq_num
+
+    def calculate_throughput(self):
+        if self.start_time and self.end_time and self.total_data_received > 0:
+            duration = self.end_time - self.start_time
+            throughput = (self.total_data_received * 8) / (duration * 1000000)  # Mbps calculation
+            print(f"Total data received: {self.total_data_received} bytes")
+            print(f"Total time taken: {duration:.6f} seconds")
+            print(f"Throughput: {throughput:.2f} Mbps")
+        else:
+            print("Insufficient data to calculate throughput.")
+
+    def close(self):
+        print("Closing server socket")
+        self.socket.close()
+
+    
+
+class DRTPClient(DRTPBase):
+    def __init__(self, ip, port, filename, window_size=3):
+        super().__init__(ip, port, window_size)
+        self.filename = filename
+        self.ack_received = 1  # Initial expected ACK
+    
+    def run(self):
+        self.initiate_connection()
+        self.send_data()
+
+    # Example logging when establishing a connection in DRTPClient
+    def initiate_connection(self):
+        self.send_packet(0, 0, self.SYN)
+        print("SYN packet sent")
+        while True:
+            header, _, addr = self.receive_packet()
+            if header:
+                seq_num, ack_num, flags = header
+                if flags == (self.SYN | self.ACK):
+                    self.send_packet(0, ack_num, self.ACK, addr=addr)
+                    print("ACK packet sent")
+                    print("Connection established")
+                    break  # Exit loop once handshake is complete
+
+    def send_data(self):
+        """ Sends data using a sliding window protocol. """
+        with open(self.filename, 'rb') as file:
+        # First send the filename
+            filename_packet = f"FILENAME:{os.path.basename(self.filename)}".encode('utf-8')
+            self.send_packet(self.next_seq_num, 0, 0, filename_packet)
+            self.window.append(self.next_seq_num)
+            self.send_buffer[self.next_seq_num] = filename_packet
+            self.next_seq_num += 1
+
+            # Then send the file data
+            data = file.read(self.DATA_SIZE)
+            while data or self.window:
+                # Send new packets if the window is not full, 
+                while len(self.window) < self.window_size and data:
+                    self.send_packet(self.next_seq_num, 0, 0, data)
+                    self.window.append(self.next_seq_num)
+                    print(f"{time.strftime('%H:%M:%S.%f')[:-3]} -- Packet with seq = {self.next_seq_num} is sent, sliding window = {self.window}")
+                    self.send_buffer[self.next_seq_num] = data
+                    self.next_seq_num += 1
+                    data = file.read(self.DATA_SIZE)
+
+                self.handle_acknowledgments()
+
+    def handle_acknowledgments(self):
+        try:
+            header, _, addr = self.receive_packet()
+            if header:
+                _, ack_num, flags = header
+                if flags & self.ACK:
+                    # Update window on receiving ACK
+                    while self.window and self.window[0] <= ack_num:
+                        acknowledged_seq = self.window.pop(0)
+                        del self.send_buffer[acknowledged_seq]
+                        print(f"{time.strftime('%H:%M:%S.%f')[:-3]} -- ACK for packet = {ack_num} received")
+        except socket.timeout:
+            print(f"{time.strftime('%H:%M:%S.%f')[:-3]} -- RTO occurred")
+            self.retransmit_unacknowledged_packets()
+        finally:
+            if not self.window and not self.send_buffer:
+                self.teardown_connection()
+
+
+
+    def retransmit_unacknowledged_packets(self):
+        for seq in self.window:
+            data = self.send_buffer[seq]
+            self.send_packet(seq, 0, 0, data)
+            print(f"{time.strftime('%H:%M:%S.%f')[:-3]} -- Retransmitting packet with seq = {seq}")
+            continue
+
+
+    def teardown_connection(self):
+        """ Sends a FIN packet and handles the final ACK. """
+        print("Sending FIN packet")
+        #send fin packet
+        self.send_packet(self.next_seq_num, 0, self.FIN)
+        self.next_seq_num += 1
+        #receive ack packet
+        header, _, addr = self.receive_packet()
+        if header:
+            seq_num, ack_num, flags = header
+            if flags & self.ACK:
+                print("Connection closed")
+                self.socket.close()
+
+
+       
+        
+

@@ -1,0 +1,10 @@
+SERVER_IP= '127.0.0.1'
+SERVER_PORT = 8080
+FILENAME = 'path_to_file.jpg'
+PROTOCOL = 'gbn'  # default: gbn, other option: sr
+PAYLOAD_SIZE = 994 # 1000 hele
+WINDOW = 3
+PACKET_SIZE = 1000
+DEFAULT_TIMEOUT = 0.5
+MAX_LOSS_PACKETS = 5
+MAX_SKIP_ACKS = 5
