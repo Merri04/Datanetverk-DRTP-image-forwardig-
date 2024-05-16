@@ -1,7 +1,7 @@
+import datetime
 import socket
 import struct
 import os
-import sys
 import time
 from config import *
 
@@ -73,7 +73,7 @@ class DRTPServer(DRTPBase):
                 if header:
                     seq_num, ack_num, flags = header
                     if self.discard_seq and int(self.discard_seq) == seq_num and not packet_discarded:
-                        print(f"{time.strftime('%H:%M:%S.%f')[:-3]} -- packet {seq_num} is intentionally discarded")
+                        print(f"{datetime.datetime.now().strftime('%H:%M:%S.%f')} -- packet {seq_num} is intentionally discarded")
                         packet_discarded = True
                         continue
                     if flags & self.SYN and self.connection_state == "LISTEN":
@@ -128,10 +128,10 @@ class DRTPServer(DRTPBase):
                 if not os.path.exists(directory):
                     os.makedirs(directory)
                 self.filepath = os.path.join(directory, filename)
-                print(f"{time.strftime('%H:%M:%S.%f')[:-3]} -- packet {seq_num} is received") #new
+                print(f"{datetime.datetime.now().strftime('%H:%M:%S.%f')} -- packet {seq_num} is received") #new
                 self.send_packet(0, seq_num, self.ACK, addr=addr) #new
                 self.last_acked_seq += 1 #new
-                print(f"{time.strftime('%H:%M:%S.%f')[:-3]} -- sending ack for the received {seq_num}") #new
+                print(f"{datetime.datetime.now().strftime('%H:%M:%S.%f')} -- sending ack for the received {seq_num}") #new
                 #print(f"Filename set to {self.filepath}")
                 return  # Do not write this packet's data to file
 
@@ -143,30 +143,30 @@ class DRTPServer(DRTPBase):
         if seq_num == self.last_acked_seq + 1:
             # Track total packet received not data as it is not the whole package
             self.total_data_received += len(data) # Track total packet received
-            print(f"{time.strftime('%H:%M:%S.%f')[:-3]} -- packet {seq_num} is received")
+            print(f"{datetime.datetime.now().strftime('%H:%M:%S.%f')} -- packet {seq_num} is received")
             self.send_packet(0, seq_num, self.ACK, addr=addr)
             self.last_acked_seq += 1
-            print(f"{time.strftime('%H:%M:%S.%f')[:-3]} -- sending ack for the received {seq_num}")
+            print(f"{datetime.datetime.now().strftime('%H:%M:%S.%f')} -- sending ack for the received {seq_num}")
             self.process_buffered_packets(addr)
         elif seq_num > self.last_acked_seq + 1:
             self.buffered_packets[seq_num] = data
-            print(f"{time.strftime('%H:%M:%S.%f')[:-3]} -- out-of-order packet {seq_num} is received")
+            print(f"{datetime.datetime.now().strftime('%H:%M:%S.%f')} -- out-of-order packet {seq_num} is received")
             #make a logic that handles discarding of packets
             if seq_num == self.discard_seq:
-                print(f"{time.strftime('%H:%M:%S.%f')[:-3]} -- packet {seq_num} is discarded")
+                print(f"{datetime.datetime.now().strftime('%H:%M:%S.%f')} -- packet {seq_num} is discarded")
         else:
             print(f"{time.strftime('%H:%M:%S.%f')[:-3]} -- duplicate packet {seq_num} is received")
             self.send_packet(0, seq_num, self.ACK, addr=addr)
-            print(f"{time.strftime('%H:%M:%S.%f')[:-3]} -- sending ack for the duplicate received {seq_num}")
+            print(f"{datetime.datetime.now().strftime('%H:%M:%S.%f')} -- sending ack for the duplicate received {seq_num}")
 
     def process_buffered_packets(self, addr):
         # Attempt to process any buffered packets that can now be accepted
         while self.last_acked_seq + 1 in self.buffered_packets:
             seq_num = self.last_acked_seq + 1
             data = self.buffered_packets.pop(seq_num)
-            print(f"{time.strftime('%H:%M:%S.%f')[:-3]} -- packet {seq_num} from buffer is now received")
+            print(f"{datetime.datetime.now().strftime('%H:%M:%S.%f')} -- packet {seq_num} from buffer is now received")
             self.send_packet(0, seq_num, self.ACK, addr=addr)
-            print(f"{time.strftime('%H:%M:%S.%f')[:-3]} -- sending ack for the buffered received {seq_num}")
+            print(f"{datetime.datetime.now().strftime('%H:%M:%S.%f')} -- sending ack for the buffered received {seq_num}")
             self.last_acked_seq = seq_num
 
     def calculate_throughput(self):
@@ -216,7 +216,7 @@ class DRTPClient(DRTPBase):
             filename_packet = f"FILENAME:{os.path.basename(self.filename)}".encode('utf-8')
             self.send_packet(self.next_seq_num, 0, 0, filename_packet)
             self.window.append(self.next_seq_num)
-            print(f"{time.strftime('%H:%M:%S.%f')[:-3]} -- Packet with seq = {self.next_seq_num} is sent, sliding window = {self.window}")
+            print(f"{datetime.datetime.now().strftime('%H:%M:%S.%f')} -- Packet with seq = {self.next_seq_num} is sent, sliding window = {self.window}")
 
             self.send_buffer[self.next_seq_num] = filename_packet
             self.next_seq_num += 1
@@ -228,7 +228,7 @@ class DRTPClient(DRTPBase):
                 while len(self.window) < self.window_size and data:
                     self.send_packet(self.next_seq_num, 0, 0, data)
                     self.window.append(self.next_seq_num)
-                    print(f"{time.strftime('%H:%M:%S.%f')[:-3]} -- Packet with seq = {self.next_seq_num} is sent, sliding window = {self.window}")
+                    print(f"{datetime.datetime.now().strftime('%H:%M:%S.%f')} -- Packet with seq = {self.next_seq_num} is sent, sliding window = {self.window}")
                     self.send_buffer[self.next_seq_num] = data
                     self.next_seq_num += 1
                     data = file.read(self.DATA_SIZE)
@@ -245,7 +245,7 @@ class DRTPClient(DRTPBase):
                     while self.window and self.window[0] <= ack_num:
                         acknowledged_seq = self.window.pop(0)
                         del self.send_buffer[acknowledged_seq]
-                        print(f"{time.strftime('%H:%M:%S.%f')[:-3]} -- ACK for packet = {ack_num} received")
+                        print(f"{datetime.datetime.now().strftime('%H:%M:%S.%f')} -- ACK for packet = {ack_num} received")
         except socket.timeout:
             print(f"{time.strftime('%H:%M:%S.%f')[:-3]} -- RTO occurred")
             self.retransmit_unacknowledged_packets()
@@ -258,7 +258,7 @@ class DRTPClient(DRTPBase):
         for seq in self.window:
             data = self.send_buffer[seq]
             self.send_packet(seq, 0, 0, data)
-            print(f"{time.strftime('%H:%M:%S.%f')[:-3]} -- Retransmitting packet with seq = {seq}")
+            print(f"{datetime.datetime.now().strftime('%H:%M:%S.%f')} -- Retransmitting packet with seq = {seq}")
             continue
 
 
