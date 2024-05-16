@@ -3,27 +3,29 @@ import struct
 import os
 import sys
 import time
+from config import *
+
+
+
 
 class DRTPBase:
-    HEADER_FORMAT = '!HHH'
-    HEADER_SIZE = 6
-    DATA_SIZE = 994
-    PACKET_SIZE = HEADER_SIZE + DATA_SIZE
-    SYN = 1
-    ACK = 2
-    FIN = 4
-    TIMEOUT_INTERVAL = 0.5  # 500ms timeout
-
     def __init__(self, ip, port, window_size=3):
+        self.TIMEOUT_INTERVAL = TIMEOUT_INTERVAL
+        self.HEADER_FORMAT = HEADER_FORMAT
+        self.HEADER_SIZE = HEADER_SIZE
+        self.DATA_SIZE = DATA_SIZE
+        self.PACKET_SIZE = PACKET_SIZE
+        self.SYN = SYN
+        self.ACK = ACK
+        self.FIN = FIN
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.socket.settimeout(self.TIMEOUT_INTERVAL)
         self.ip = ip
         self.port = port
         self.window_size = window_size
         self.expected_seq = 1
         self.next_seq_num = 1
         self.window = []
-        self.send_buffer = {}
+        self.send_buffer = {} 
 
     def encode_header(self, seq_num, ack_num, flags):
         return struct.pack(self.HEADER_FORMAT, seq_num, ack_num, flags)
@@ -52,19 +54,22 @@ class DRTPServer(DRTPBase):
         self.discard_seq = discard
         self.connection_state = "LISTEN"
         self.socket.bind((self.ip, self.port))
-        self.socket.settimeout(None)
         self.last_acked_seq = 0
         self.buffered_packets = {}
         self.total_data_received = 0  
         self.start_time = None
         self.end_time = None
 
+
     def run(self):
+        print("discard_seq", self.discard_seq)
+
         print(f"Server started at {self.ip}:{self.port}")
         packet_discarded = False
         try:
             while self.connection_state != "CLOSED":
                 header, data, addr = self.receive_packet()
+                #print("printing data received  ", len(data))
                 if header:
                     seq_num, ack_num, flags = header
                     if self.discard_seq and int(self.discard_seq) == seq_num and not packet_discarded:
@@ -81,6 +86,11 @@ class DRTPServer(DRTPBase):
                         self.handle_fin(seq_num, addr)
                     elif self.connection_state == "ESTABLISHED":
                         self.handle_data_packet(seq_num, data, addr)
+
+        except KeyboardInterrupt:
+            print("Keyboard interrupt detected")
+        except Exception as e:
+            print(f"An error occurred: {e}")
         finally:
             self.calculate_throughput()
             self.close()
@@ -104,13 +114,13 @@ class DRTPServer(DRTPBase):
         #calculate throughput
         print("Connection closed")
 
-    def close(self):
-        self.socket.close()
+    #def close(self):
+     #   self.socket.close()
 
             
 
     def handle_data_packet(self, seq_num, data, addr):
-        if not hasattr(self, 'filepath'):
+        if not hasattr(self, 'filepath'): 
         # Assume the first packet contains the filename
             if data.startswith(b'FILENAME:'):
                 filename = data.decode().split(':')[1]  # Extract filename from packet
@@ -118,6 +128,10 @@ class DRTPServer(DRTPBase):
                 if not os.path.exists(directory):
                     os.makedirs(directory)
                 self.filepath = os.path.join(directory, filename)
+                print(f"{time.strftime('%H:%M:%S.%f')[:-3]} -- packet {seq_num} is received") #new
+                self.send_packet(0, seq_num, self.ACK, addr=addr) #new
+                self.last_acked_seq += 1 #new
+                print(f"{time.strftime('%H:%M:%S.%f')[:-3]} -- sending ack for the received {seq_num}") #new
                 #print(f"Filename set to {self.filepath}")
                 return  # Do not write this packet's data to file
 
@@ -127,7 +141,8 @@ class DRTPServer(DRTPBase):
         #print(f"Data written to {self.filepath}")
 
         if seq_num == self.last_acked_seq + 1:
-            self.total_data_received += len(data)
+            # Track total packet received not data as it is not the whole package
+            self.total_data_received += len(data) # Track total packet received
             print(f"{time.strftime('%H:%M:%S.%f')[:-3]} -- packet {seq_num} is received")
             self.send_packet(0, seq_num, self.ACK, addr=addr)
             self.last_acked_seq += 1
@@ -168,11 +183,10 @@ class DRTPServer(DRTPBase):
         print("Closing server socket")
         self.socket.close()
 
-    
-
 class DRTPClient(DRTPBase):
     def __init__(self, ip, port, filename, window_size=3):
         super().__init__(ip, port, window_size)
+        self.socket.settimeout(self.TIMEOUT_INTERVAL)
         self.filename = filename
         self.ack_received = 1  # Initial expected ACK
     
@@ -189,6 +203,7 @@ class DRTPClient(DRTPBase):
             if header:
                 seq_num, ack_num, flags = header
                 if flags == (self.SYN | self.ACK):
+                    print("SYN-ACK packet is received")
                     self.send_packet(0, ack_num, self.ACK, addr=addr)
                     print("ACK packet sent")
                     print("Connection established")
@@ -201,11 +216,13 @@ class DRTPClient(DRTPBase):
             filename_packet = f"FILENAME:{os.path.basename(self.filename)}".encode('utf-8')
             self.send_packet(self.next_seq_num, 0, 0, filename_packet)
             self.window.append(self.next_seq_num)
+            print(f"{time.strftime('%H:%M:%S.%f')[:-3]} -- Packet with seq = {self.next_seq_num} is sent, sliding window = {self.window}")
+
             self.send_buffer[self.next_seq_num] = filename_packet
             self.next_seq_num += 1
 
             # Then send the file data
-            data = file.read(self.DATA_SIZE)
+            data = file.read(self.PACKET_SIZE)
             while data or self.window:
                 # Send new packets if the window is not full, 
                 while len(self.window) < self.window_size and data:
@@ -237,7 +254,6 @@ class DRTPClient(DRTPBase):
                 self.teardown_connection()
 
 
-
     def retransmit_unacknowledged_packets(self):
         for seq in self.window:
             data = self.send_buffer[seq]
@@ -260,7 +276,4 @@ class DRTPClient(DRTPBase):
                 print("Connection closed")
                 self.socket.close()
 
-
-       
-        
 

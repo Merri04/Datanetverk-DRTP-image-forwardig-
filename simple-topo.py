@@ -30,7 +30,7 @@ class NetworkTopo( Topo ):
         self.addLink(r,h2,params1={ 'ip' : '10.0.1.1/24' },params2={ 'ip' : '10.0.1.2/24' }) #, bw=100, delay='25ms')#, max_queue_size=834, use_htb=True)
 
 topo = NetworkTopo()
-net = Mininet( topo=topo, link=TCLink, controller=None)
+net = Mininet( topo=topo, link=TCLink)
 net.start()
 
 #ip route add ipA via ipB dev INTERFACE
@@ -41,7 +41,7 @@ net["h2"].cmd("ip route add 10.0.0.1 via 10.0.1.1 dev h2-eth0")
 net["h2"].cmd("ip route add 10.0.0.2 via 10.0.1.1 dev h2-eth0")
 
 # this adds a delay of 100ms - if you ping h2 from h1, the RTT will be 100ms 
-net["r"].cmd("tc qdisc add dev r-eth1 root netem delay 100ms")
+net["r"].cmd("tc qdisc add dev r-eth1 root netem delay 50ms")
 #net["r"].cmd("tc qdisc add dev r-eth1 root netem delay 100ms loss 2%")
 
 net["h1"].cmd("ethtool -K h1-eth0 tso off")
