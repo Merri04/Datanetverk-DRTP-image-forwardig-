@@ -5,11 +5,33 @@ import os
 import time
 from config import *
 
-
-
-
 class DRTPBase:
     def __init__(self, ip, port, window_size=3):
+        """THis class initializes the DRTPBase class.
+        Args:
+            ip (str): The IP address of the server.
+            port (int): The port number to bind the socket.
+            window_size (int): The size of the sliding window.
+
+        use: Sets up the socket, configurations and prototocol.
+        variables:
+            TIMEOUT_INTERVAL (int): The timeout interval for the socket.
+            HEADER_FORMAT (str): The format of the packet header.
+            HEADER_SIZE (int): The size of the packet header.
+            DATA_SIZE (int): The size of the data in the packet.
+            PACKET_SIZE (int): The size of the packet. (header + data)
+            SYN (int): The SYN flag for the packet.
+            ACK (int): The ACK flag for the packet.
+            FIN (int): The FIN flag for the packet.
+            socket (socket): UDP socket for communication.
+            ip (str): The IP address of the server.
+            port (int): The port number.
+            window_size (int): The size of the sliding window.
+            expected_seq (int): The next expected sequence number (server-side)
+            next_seq_num (int): The next sequence number to be sent. (client-side)
+            window (list): The sliding window. (client-side) 3,5 or 10
+            send_buffer (dict): The dictionary to store the packets to be sent. 
+        """
         self.TIMEOUT_INTERVAL = TIMEOUT_INTERVAL
         self.HEADER_FORMAT = HEADER_FORMAT
         self.HEADER_SIZE = HEADER_SIZE
@@ -28,12 +50,39 @@ class DRTPBase:
         self.send_buffer = {} 
 
     def encode_header(self, seq_num, ack_num, flags):
+        """
+        Encodes the header of the packet.
+        Args:
+            seq_num (int): The sequence number of the packet.
+            ack_num (int): The acknowledgment number of the packet.
+            flags (int): The flags for the packet (SYN, ACK, FIN).
+        Returns:
+        encoded header as bytes
+        """
         return struct.pack(self.HEADER_FORMAT, seq_num, ack_num, flags)
 
     def decode_header(self, packet):
+        """
+        Decodes the header of the packet.
+        Args:
+            packet (bytes): The packet received.
+        Returns:
+        tuple of (seq_num, ack_num, flags)
+        """
         return struct.unpack(self.HEADER_FORMAT, packet[:self.HEADER_SIZE])
 
     def send_packet(self, seq_num, ack_num, flags, data=b'', addr=None):
+        """
+        send_packet sends a packet to the specified address.
+        Args:
+            seq_num (int): The sequence number of the packet.
+            ack_num (int): The acknowledgment number of the packet.
+            flags (int): The flags for the packet (SYN, ACK, FIN).
+            data (bytes): The data to be sent in the packet.
+            addr (tuple): The address to send the packet to.
+        return: None
+
+        """
         packet = self.encode_header(seq_num, ack_num, flags) + data
         if addr is None:
             addr = (self.ip, self.port)
@@ -41,6 +90,14 @@ class DRTPBase:
         #print(f"Packet sent: Seq={seq_num}, Ack={ack_num}, Flags={flags}, Data={data[:20]}... to {addr}")
 
     def receive_packet(self):
+        """
+        receive_packet receives a packet.
+        args: None
+        return: tuple of (header, data, address)
+        header: tuple of (seq_num, ack_num, flags)
+        data: Data received in the packet
+        address: The address from which the packet is received.
+        """
         packet, addr = self.socket.recvfrom(self.PACKET_SIZE)
         seq_num, ack_num, flags = self.decode_header(packet)
         data = packet[self.HEADER_SIZE:]
@@ -50,6 +107,27 @@ class DRTPBase:
 
 class DRTPServer(DRTPBase):
     def __init__(self, ip, port, window_size=3, discard=None):
+        """
+        this class initializes the DRTPServer class.
+        Args:
+            ip (str): The IP address of the server.
+            port (int): The port number to bind the socket.
+            window_size (int): The size of the sliding window default 3.
+            discard (int): The sequence number of the packet to discard default None.
+        use: Sets up the socket, configurations, socket binding and initial state.
+        variables:
+            discard_seq (int): The sequence number of the packet to discard.
+            connection_state (str): The state of the connection (LISTEN, SYN_RCVD, ESTABLISHED, CLOSED).
+            socket (socket): UDP socket for communication.
+            ip (str): The IP address of the server.
+            port (int): The port number.
+            window_size (int): The size of the sliding window.
+            last_acked_seq (int): The last acknowledged sequence number.
+            buffered_packets (dict): The dictionary to store out-of-order packets.
+            total_data_received (int): The total data received by the server.
+            start_time (float): The start time of the connection when the data transfer started.
+            end_time (float): The end time of the connection when the data transfer ended.
+        """
         super().__init__(ip, port, window_size)
         self.discard_seq = discard
         self.connection_state = "LISTEN"
@@ -62,6 +140,12 @@ class DRTPServer(DRTPBase):
 
 
     def run(self):
+        """
+        run starts the server and listens for incoming packets.
+        args: None
+        return: None
+        use:continuously listens for incoming packets and processes them based on the connection state.
+        """
         print("discard_seq", self.discard_seq)
 
         print(f"Server started at {self.ip}:{self.port}")
@@ -96,17 +180,36 @@ class DRTPServer(DRTPBase):
             self.close()
 
     def handle_syn(self, seq_num, addr):
+        """
+        Handles the SYN packet to establish a connection.
+        Args:
+            seq_num (int): The sequence number of the SYN packet.
+            addr (tuple): The address from which the SYN packet is received.
+        use: Sends a SYN-ACK packet and update the connection state to SYN_RCVD.    
+        """
         print("SYN packet is received")
         self.send_packet(0, seq_num + 1, self.SYN | self.ACK, addr=addr)
         print("SYN-ACK packet is sent")
         self.connection_state = "SYN_RCVD"
 
     def handle_established(self):
+        """
+        Handles the ACK packet to establish a connection.
+        Args: None
+        use: Updates the connection state to ESTABLISHED.
+        """
         print("ACK packet is received")
         print("Connection established")
         self.connection_state = "ESTABLISHED"
 
     def handle_fin(self, seq_num, addr):
+        """
+        Handles the FIN packet to close the connection.
+        Args:
+            seq_num (int): The sequence number of the FIN packet.
+            addr (tuple): The address from which the FIN packet is received.
+        use: Sends a FIN-ACK packet and update the connection state to CLOSED.
+        """
         print("FIN packet is received")
         self.send_packet(seq_num + 1, 0, self.ACK, addr=addr)
         print("FIN-ACK packet is sent")
@@ -120,6 +223,14 @@ class DRTPServer(DRTPBase):
             
 
     def handle_data_packet(self, seq_num, data, addr):
+        """
+        Handles the data packet received.
+        Args:
+            seq_num (int): The sequence number of the packet.
+            data (bytes): The data received in the packet.
+            addr (tuple): The address from which the packet is received.
+        use: Writes the data to the file and sends an ACK packet and buffering for out-of-order packets.
+        """
         if not hasattr(self, 'filepath'): 
         # Assume the first packet contains the filename
             if data.startswith(b'FILENAME:'):
@@ -160,6 +271,12 @@ class DRTPServer(DRTPBase):
             print(f"{datetime.datetime.now().strftime('%H:%M:%S.%f')} -- sending ack for the duplicate received {seq_num}")
 
     def process_buffered_packets(self, addr):
+        """
+        process_buffered_packets processes the buffered packets that are received out-of-order.
+        Args:
+            addr (tuple): The address to send the ACK packet.
+        use: Sends an ACK packet for the buffered packets and updates the last acknowledged sequence number. 
+        """
         # Attempt to process any buffered packets that can now be accepted
         while self.last_acked_seq + 1 in self.buffered_packets:
             seq_num = self.last_acked_seq + 1
@@ -170,6 +287,11 @@ class DRTPServer(DRTPBase):
             self.last_acked_seq = seq_num
 
     def calculate_throughput(self):
+        """
+        Calculates the throughput of the connection.
+        Args: None
+        use: Calculates the throughput based on the total data received and the time taken for the transfer.
+        """
         if self.start_time and self.end_time and self.total_data_received > 0:
             duration = self.end_time - self.start_time
             throughput = (self.total_data_received * 8) / (duration * 1000000)  # Mbps calculation
@@ -179,23 +301,44 @@ class DRTPServer(DRTPBase):
         else:
             print("Insufficient data to calculate throughput.")
 
-    def close(self):
+    def close(self): #this clothes the connection and the UDP socket used by the server
         print("Closing server socket")
         self.socket.close()
 
 class DRTPClient(DRTPBase):
     def __init__(self, ip, port, filename, window_size=3):
+        """
+        This class initializes the DRTPClient class.
+        Args:
+            ip (str): The IP address of the server.
+            port (int): The port number to bind the socket.
+            filename (str): The name of the file to be send.
+            window_size (int): The size of the sliding window default 3.
+        use: Sets up the socket, configurations and initial state.
+        variables:
+            filename (str): The name of the file to be sent.
+            ack_received (int): Last acknowledged sequence number.
+        """
         super().__init__(ip, port, window_size)
         self.socket.settimeout(self.TIMEOUT_INTERVAL)
         self.filename = filename
         self.ack_received = 1  # Initial expected ACK
     
     def run(self):
+        """
+        Runs the client and sends the data.
+        Args: None
+        return: None
+        use: Initiates the connection and sends the data using a sliding window protocol.
+        """
         self.initiate_connection()
         self.send_data()
 
     # Example logging when establishing a connection in DRTPClient
     def initiate_connection(self):
+        """ Initiates a connection to the server using a three-way handshake.
+        use: Sends a SYN packet and waits for a SYN-ACK packet to complete the handshake then sends an ACK packet to establish the connection with the server.
+        """
         self.send_packet(0, 0, self.SYN)
         print("SYN packet sent")
         while True:
@@ -210,7 +353,9 @@ class DRTPClient(DRTPBase):
                     break  # Exit loop once handshake is complete
 
     def send_data(self):
-        """ Sends data using a sliding window protocol. """
+        """ Sends data using a sliding window protocol. 
+        use: Reads data from the file and sends it in packets. Manages the sliding window and retransmissions. 
+        """
         with open(self.filename, 'rb') as file:
         # First send the filename
             filename_packet = f"FILENAME:{os.path.basename(self.filename)}".encode('utf-8')
@@ -236,6 +381,9 @@ class DRTPClient(DRTPBase):
                 self.handle_acknowledgments()
 
     def handle_acknowledgments(self):
+        """ Handles the acknowledgments received from the server.
+        use: waits forACK packets and updates the window and send buffer accordingly. Retransmits unacknowledged packets if a timeout occurs.
+        """
         try:
             header, _, addr = self.receive_packet()
             if header:
@@ -255,6 +403,9 @@ class DRTPClient(DRTPBase):
 
 
     def retransmit_unacknowledged_packets(self):
+        """ Retransmits the unacknowledged packets in the window.
+        use: Retransmits the packets in the window that have not been acknowledged by the server.
+        """
         for seq in self.window:
             data = self.send_buffer[seq]
             self.send_packet(seq, 0, 0, data)
@@ -263,7 +414,10 @@ class DRTPClient(DRTPBase):
 
 
     def teardown_connection(self):
-        """ Sends a FIN packet and handles the final ACK. """
+        """
+        Tears down the connection by sending a FIN packet and handling the final ACK.
+        use: Sends a FIN packet to close the connection and waits for the final ACK packet to close the connection.
+        """
         print("Sending FIN packet")
         #send fin packet
         self.send_packet(self.next_seq_num, 0, self.FIN)
