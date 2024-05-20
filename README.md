@@ -33,7 +33,7 @@ $ sudo fuser -k 6653/tcp
 # How to run DRTP:
 To run this project, you must run it either client or server mode. Server must be started first.
 
-#### Server only arguments: 
+### Server only arguments: 
 Runing the application in server mode allows the server to accept files from a client via its DRTP/UDP. 
 
 write this in the terminal to invoke the server mode:
@@ -140,9 +140,43 @@ options:
 usage: ```python3 application.py -s -i 127.0.0.1```
 
 `-p` Is used to bind to a port. It is by default 8088
-usage: ```python3 application.py -s -p 8088```
+usage: ```python3 application.py -s -i 127.0.0.1 -p 8088```
+`-d` Is used to discard a package. 
+usage: ```python3 application.py -s -i 127.0.0.1 -p 8088 -d 3```
+Running this will print the following to the terminal: 
 
-# Client only arguments 
+server:
+``` console
+13:27:17.701545 -- packet 1 is received
+13:27:17.701578 -- sending ack for the received 1
+13:27:17.701661 -- packet 2 is received
+13:27:17.701682 -- sending ack for the received 2
+13:27:17.701700 -- packet 3 is intentionally discarded
+13:27:17.701751 -- out-of-order packet 4 is received
+13:27:17.701882 -- out-of-order packet 5 is received
+13:27:18.202891 -- packet 3 is received
+13:27:18.203006 -- sending ack for the received 3
+```
+
+client: 
+``` console
+Data Transfer:
+
+13:27:17.701499 -- Packet with seq = 1 is sent, sliding window = [1]
+13:27:17.701553 -- Packet with seq = 2 is sent, sliding window = [1, 2]
+13:27:17.701577 -- Packet with seq = 3 is sent, sliding window = [1, 2, 3]
+13:27:17.701601 -- ACK for packet = 1 received
+13:27:17.701620 -- Packet with seq = 4 is sent, sliding window = [2, 3, 4]
+13:27:17.701727 -- ACK for packet = 2 received
+13:27:17.701821 -- Packet with seq = 5 is sent, sliding window = [3, 4, 5]
+13:27:18 -- RTO occurred
+13:27:18.202638 -- Retransmitting packet with seq = 3
+13:27:18.202708 -- Retransmitting packet with seq = 4
+13:27:18.202769 -- Retransmitting packet with seq = 5
+13:27:18.203077 -- ACK for packet = 3 received
+13:27:18.203196 -- Packet with seq = 6 is sent, sliding window = [4, 5, 6]
+```
+### Client only arguments 
 
 `-c` --client Run in client mode
 Usage:```python3 application.py -c```
