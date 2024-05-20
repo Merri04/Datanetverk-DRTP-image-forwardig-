@@ -6,3 +6,4 @@ SYN = 1
 ACK = 2
 FIN = 4
 TIMEOUT_INTERVAL = 0.5  # 500ms timeout
+split_line = "-" * 60

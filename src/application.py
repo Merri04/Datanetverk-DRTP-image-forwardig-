@@ -73,7 +73,7 @@ def main():
     parser.add_argument("-c", "--client", action="store_true", help="Run in client mode")
     parser.add_argument("-s", "--server", action="store_true", help="Run in server mode")
     parser.add_argument("-i", "--ip", type=check_ip, help="IP address of the server", default="127.0.0.1")
-    parser.add_argument("-p", "--port", type=check_port, help="Port number", default=8080)
+    parser.add_argument("-p", "--port", type=check_port, help="Port number", default=8088)
     parser.add_argument("-f", "--file", type=check_file_exists, help="File to send (required in client mode)")
     parser.add_argument("-w", "--window", type=check_window_size, help="Sliding window size", default=3)
     parser.add_argument("-d", "--discard", type=check_discard, help="Sequence number of the packet to discard (server mode)", default=None)

@@ -146,9 +146,11 @@ class DRTPServer(DRTPBase):
         return: None
         use:continuously listens for incoming packets and processes them based on the connection state.
         """
-        print("discard_seq", self.discard_seq)
-
+        #print("discard_seq", self.discard_seq)
+        print(split_line)
         print(f"Server started at {self.ip}:{self.port}")
+        print(split_line)
+        print() # just to have some space
         packet_discarded = False
         try:
             while self.connection_state != "CLOSED":
@@ -166,8 +168,10 @@ class DRTPServer(DRTPBase):
                         self.start_time = time.perf_counter() 
                         self.handle_established()
                     elif flags & self.FIN and self.connection_state == "ESTABLISHED":
-                        self.end_time = time.perf_counter()  
+                        self.end_time = time.perf_counter()  # End time of the connection
+                        print() # just to have some space
                         self.handle_fin(seq_num, addr)
+                        print() # just to have some space
                     elif self.connection_state == "ESTABLISHED":
                         self.handle_data_packet(seq_num, data, addr)
 
@@ -177,6 +181,8 @@ class DRTPServer(DRTPBase):
             print(f"An error occurred: {e}")
         finally:
             self.calculate_throughput()
+
+            print() # just to have some space
             self.close()
 
     def handle_syn(self, seq_num, addr):
@@ -200,7 +206,9 @@ class DRTPServer(DRTPBase):
         """
         print("ACK packet is received")
         print("Connection established")
+        print() # just to have some space
         self.connection_state = "ESTABLISHED"
+        
 
     def handle_fin(self, seq_num, addr):
         """
@@ -214,7 +222,6 @@ class DRTPServer(DRTPBase):
         self.send_packet(seq_num + 1, 0, self.ACK, addr=addr)
         print("FIN-ACK packet is sent")
         self.connection_state = "CLOSED"
-        #calculate throughput
         print("Connection closed")
 
     #def close(self):
@@ -331,10 +338,17 @@ class DRTPClient(DRTPBase):
         return: None
         use: Initiates the connection and sends the data using a sliding window protocol.
         """
+        print(split_line)
+        print(f"Server started at {self.ip}:{self.port}")
+        print(split_line)
+        print() # just to have some space
         self.initiate_connection()
+        print() # just to have some space
+        print("Data Transfer:")
+        print() # just to have some space
         self.send_data()
 
-    # Example logging when establishing a connection in DRTPClient
+    
     def initiate_connection(self):
         """ Initiates a connection to the server using a three-way handshake.
         use: Sends a SYN packet and waits for a SYN-ACK packet to complete the handshake then sends an ACK packet to establish the connection with the server.
@@ -399,6 +413,7 @@ class DRTPClient(DRTPBase):
             self.retransmit_unacknowledged_packets()
         finally:
             if not self.window and not self.send_buffer:
+                print() # just to have some space
                 self.teardown_connection()
 
 
