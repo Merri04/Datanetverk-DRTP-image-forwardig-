@@ -232,6 +232,8 @@ class DRTPServer(DRTPBase):
             addr (tuple): The address from which the packet is received.
         use: Writes the data to the file and sends an ACK packet and buffering for out-of-order packets.
         """
+
+
         if not hasattr(self, 'filepath'): 
         # Assume the first packet contains the filename
             if data.startswith(b'FILENAME:'):
@@ -246,11 +248,16 @@ class DRTPServer(DRTPBase):
                 print(f"{datetime.datetime.now().strftime('%H:%M:%S.%f')} -- sending ack for the received {seq_num}") 
                 #print(f"Filename set to {self.filepath}")
                 return  
-
+            else:
+                print("Filename not received")
+                return
         # Write data to the file specified by the first packet
-        with open(self.filepath, "ab") as file:
+        with open(self.filepath, "wb") as file:
             file.write(data)
         #print(f"Data written to {self.filepath}")
+
+
+
 
         if seq_num == self.last_acked_seq + 1:
             # Track total packet received not data as it is not the whole package
@@ -359,6 +366,9 @@ class DRTPClient(DRTPBase):
                     print("ACK packet sent")
                     print("Connection established")
                     break  # Exit loop once handshake is complete
+                else:
+                    print("Invalid packet received")
+
 
     def send_data(self):
         """ Sends data using a sliding window protocol. 
@@ -385,6 +395,7 @@ class DRTPClient(DRTPBase):
                     self.send_buffer[self.next_seq_num] = data
                     self.next_seq_num += 1
                     data = file.read(self.DATA_SIZE)
+
 
                 self.handle_acknowledgments()
 
@@ -421,7 +432,6 @@ class DRTPClient(DRTPBase):
             print(f"{datetime.datetime.now().strftime('%H:%M:%S.%f')} -- Retransmitting packet with seq = {seq}")
             continue
 
-
     def teardown_connection(self):
         """
         Tears down the connection by sending a FIN packet and handling the final ACK.
@@ -438,5 +448,7 @@ class DRTPClient(DRTPBase):
             if flags & self.ACK:
                 print("Connection closed")
                 self.socket.close()
+            else:
+                print("Invalid packet received")
 
 
