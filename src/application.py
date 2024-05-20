@@ -90,7 +90,7 @@ def main():
         client.run()
 
     elif args.server:
-        server = DRTPServer(args.ip, args.port, args.window, args.discard)
+        server = DRTPServer(args.ip, args.port, args.window, args.discard) 
         server.run()
 
 if __name__ == "__main__":

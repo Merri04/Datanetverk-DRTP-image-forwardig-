@@ -146,7 +146,6 @@ class DRTPServer(DRTPBase):
         return: None
         use:continuously listens for incoming packets and processes them based on the connection state.
         """
-        #print("discard_seq", self.discard_seq)
         print(split_line)
         print(f"Server started at {self.ip}:{self.port}")
         print(split_line)
@@ -208,8 +207,6 @@ class DRTPServer(DRTPBase):
         print("Connection established")
         print() # just to have some space
         self.connection_state = "ESTABLISHED"
-        
-
     def handle_fin(self, seq_num, addr):
         """
         Handles the FIN packet to close the connection.
@@ -226,9 +223,6 @@ class DRTPServer(DRTPBase):
 
     #def close(self):
      #   self.socket.close()
-
-            
-
     def handle_data_packet(self, seq_num, data, addr):
         """
         Handles the data packet received.
@@ -246,12 +240,12 @@ class DRTPServer(DRTPBase):
                 if not os.path.exists(directory):
                     os.makedirs(directory)
                 self.filepath = os.path.join(directory, filename)
-                print(f"{datetime.datetime.now().strftime('%H:%M:%S.%f')} -- packet {seq_num} is received") #new
-                self.send_packet(0, seq_num, self.ACK, addr=addr) #new
-                self.last_acked_seq += 1 #new
-                print(f"{datetime.datetime.now().strftime('%H:%M:%S.%f')} -- sending ack for the received {seq_num}") #new
+                print(f"{datetime.datetime.now().strftime('%H:%M:%S.%f')} -- packet {seq_num} is received") 
+                self.send_packet(0, seq_num, self.ACK, addr=addr) 
+                self.last_acked_seq += 1 
+                print(f"{datetime.datetime.now().strftime('%H:%M:%S.%f')} -- sending ack for the received {seq_num}") 
                 #print(f"Filename set to {self.filepath}")
-                return  # Do not write this packet's data to file
+                return  
 
         # Write data to the file specified by the first packet
         with open(self.filepath, "ab") as file:
@@ -269,7 +263,7 @@ class DRTPServer(DRTPBase):
         elif seq_num > self.last_acked_seq + 1:
             self.buffered_packets[seq_num] = data
             print(f"{datetime.datetime.now().strftime('%H:%M:%S.%f')} -- out-of-order packet {seq_num} is received")
-            #make a logic that handles discarding of packets
+            #a logic that handles discarding of packets
             if seq_num == self.discard_seq:
                 print(f"{datetime.datetime.now().strftime('%H:%M:%S.%f')} -- packet {seq_num} is discarded")
         else:
